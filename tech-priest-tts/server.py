@@ -197,6 +197,40 @@ def synthesize_piper_wav_bytes(text: str) -> bytes:
 
 
 def apply_tech_priest_effect(wav_bytes: bytes) -> bytes:
+    try:
+        audio = AudioSegment.from_file(BytesIO(wav_bytes), format="wav")
+    except Exception as exc:
+        raise RuntimeError(f"Could not load WAV: {exc}") from exc
+
+    # 1. Clean the 'Human' Mud (Verity is very crisp)
+    audio = audio.set_channels(1)
+    audio = audio.high_pass_filter(150) # Increased from 130 to remove more 'chest' resonance
+    
+    # 2. Tight Compression (Authoritative Ship Voice)
+    audio = compress_dynamic_range(audio, threshold=-22.0, ratio=4.0, attack=5.0, release=50.0)
+
+    # 3. The 'Verity' Sheen (Clarity Boost)
+    # This targets the 2.5kHz - 4.5kHz range where the 'computer' clarity lives
+    presence = audio.high_pass_filter(2500).low_pass_filter(4500) + 6 
+    audio = audio.overlay(presence)
+
+    # 4. Subtle Cockpit Space (Short 'slap' reflections)
+    # We want it to sound like it's in a small metal cabin, not a hallway
+    reflection = audio - 22
+    audio = audio.overlay(reflection, position=12) # 12ms delay for that 'metallic' feel
+
+    # 5. The Frame-Rate 'Sync' Trick
+    # This gives it that slight synthetic 'edge'
+    original_rate = audio.frame_rate
+    audio = audio._spawn(audio.raw_data, overrides={"frame_rate": int(original_rate * 1.015)})
+    audio = audio.set_frame_rate(original_rate)
+
+    # 6. Normalize so she's always at the same volume
+    audio = audio.normalize(headroom=1.0)
+
+    out_buffer = BytesIO()
+    audio.export(out_buffer, format="wav")
+    return out_buffer.getvalue()
     """
     Verity / ship-AI style processing:
     - subtle compression for a more constant, authoritative level

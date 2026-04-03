@@ -158,11 +158,32 @@ export function useChat({
         );
 
         const reader = responseStream.getReader();
-        const decoder = new TextDecoder("utf-8");
-        const parser = createLmStudioStreamParser();
+const decoder = new TextDecoder("utf-8");
+const parser = createLmStudioStreamParser();
 
-        let fullAssistantText = "";
+let fullAssistantText = "";
 
+// 🔥 Heartbeat
+let heartbeatTimeout: number | null = null;
+
+const restartHeartbeat = () => {
+  if (heartbeatTimeout !== null) {
+    window.clearTimeout(heartbeatTimeout);
+  }
+
+  heartbeatTimeout = window.setTimeout(() => {
+    if (onAssistantMessageComplete) {
+      void onAssistantMessageComplete({
+        id: assistantMessageId,
+        role: "assistant",
+        content: "Connection Failed",
+        createdAt: assistantCreatedAt,
+      });
+    }
+  }, 5000);
+};
+
+restartHeartbeat();
         try {
           while (true) {
             const { value, done } = await reader.read();
@@ -184,6 +205,7 @@ export function useChat({
               }
 
               if (entry.tokenText.length > 0) {
+                restartHeartbeat();
                 fullAssistantText += entry.tokenText;
 
                 setMessages((previousMessages) =>
@@ -216,10 +238,14 @@ export function useChat({
               );
             }
           }
-        } finally {
-          parser.reset();
-          reader.releaseLock();
-        }
+        }   finally {
+             if (heartbeatTimeout !== null) {
+              window.clearTimeout(heartbeatTimeout);
+    }
+
+             parser.reset();
+             reader.releaseLock();
+                    }
 
         const finalizedContent = fullAssistantText.trim();
 

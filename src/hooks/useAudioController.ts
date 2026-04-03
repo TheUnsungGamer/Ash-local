@@ -209,7 +209,8 @@ export function useAudioController(): AudioController {
   );
 
   const speakWithDynamicTts = useCallback(
-    async (text: string, messageId?: string) => {
+  async (text: string, messageId?: string) => {
+    try {
       stopBrowserSpeech();
       clearHtmlAudio();
 
@@ -229,8 +230,9 @@ export function useAudioController(): AudioController {
         body: JSON.stringify({ text }),
       });
 
+      // 🔇 Silent 500
       if (!response.ok) {
-        throw new Error(`Dynamic TTS request failed with status ${response.status}.`);
+        return;
       }
 
       const audioBlob = await response.blob();
@@ -238,6 +240,12 @@ export function useAudioController(): AudioController {
       activeObjectUrlRef.current = objectUrl;
 
       const audioElement = new Audio(objectUrl);
+
+      // 🔫 Kill switch
+      if (htmlAudioRef.current) {
+        htmlAudioRef.current.pause();
+      }
+
       htmlAudioRef.current = audioElement;
 
       await new Promise<void>((resolve, reject) => {
@@ -257,35 +265,17 @@ export function useAudioController(): AudioController {
 
         audioElement.onerror = () => {
           clearHtmlAudio();
-
-          setAudioState((previousState) => ({
-            ...previousState,
-            status: "error",
-            activeText: null,
-            activeMessageId: null,
-            errorMessage: "Dynamic TTS audio playback failed.",
-          }));
-
           reject(new Error("Dynamic TTS audio playback failed."));
         };
 
-        void audioElement.play().catch((error) => {
-          clearHtmlAudio();
-
-          setAudioState((previousState) => ({
-            ...previousState,
-            status: "error",
-            activeText: null,
-            activeMessageId: null,
-            errorMessage: error instanceof Error ? error.message : "Dynamic TTS playback failed.",
-          }));
-
-          reject(error);
-        });
+        void audioElement.play().catch(reject);
       });
-    },
-    [clearHtmlAudio, stopBrowserSpeech]
-  );
+    } catch {
+      return;
+    }
+  },
+  [clearHtmlAudio, stopBrowserSpeech]
+);
 
   const speak = useCallback(
     async (text: string, messageId?: string) => {

@@ -202,6 +202,43 @@ def apply_tech_priest_effect(wav_bytes: bytes) -> bytes:
     except Exception as exc:
         raise RuntimeError(f"Could not load WAV: {exc}") from exc
 
+    # 1. The "Clean" Cut (Verity is never 'boomy' or 'bassy')
+    audio = audio.set_channels(1)
+    audio = audio.high_pass_filter(180) # Cut the human chest resonance
+    audio = audio.low_pass_filter(7500)  # Roll off the digital 'fizz'
+    
+    # 2. Authoritative Compression (Ship computers have zero volume drift)
+    audio = compress_dynamic_range(audio, threshold=-24.0, ratio=5.0, attack=3.0, release=40.0)
+
+    # 3. Comms Clarity (The "Verity Sheen")
+    # This targets the 'nasal' and 'presence' frequencies (800Hz - 4kHz)
+    mid_boost = audio.high_pass_filter(800).low_pass_filter(3500) + 3
+    presence = audio.high_pass_filter(2500).low_pass_filter(5000) + 5
+    audio = audio.overlay(mid_boost).overlay(presence)
+
+    # 4. Metallic Cockpit Reflections (The secret sauce)
+    # Verity sounds like she is in a small metal box. We use two very short delays.
+    reflection1 = audio.high_pass_filter(1500) - 24
+    reflection2 = audio.high_pass_filter(2000) - 28
+    audio = audio.overlay(reflection1, position=10) # 10ms delay
+    audio = audio.overlay(reflection2, position=22) # 22ms delay
+
+    # 5. Synthetic Edge (Slightly 'off' speed)
+    original_rate = audio.frame_rate
+    audio = audio._spawn(audio.raw_data, overrides={"frame_rate": int(original_rate * 1.012)})
+    audio = audio.set_frame_rate(original_rate)
+
+    # 6. Final Normalization
+    audio = audio.normalize(headroom=1.0)
+
+    out_buffer = BytesIO()
+    audio.export(out_buffer, format="wav")
+    return out_buffer.getvalue()
+    try:
+        audio = AudioSegment.from_file(BytesIO(wav_bytes), format="wav")
+    except Exception as exc:
+        raise RuntimeError(f"Could not load WAV: {exc}") from exc
+
     # 1. Clean the 'Human' Mud (Verity is very crisp)
     audio = audio.set_channels(1)
     audio = audio.high_pass_filter(150) # Increased from 130 to remove more 'chest' resonance

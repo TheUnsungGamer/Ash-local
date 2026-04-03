@@ -13,6 +13,32 @@ from piper import PiperVoice
 from pydub import AudioSegment
 from pydub.effects import compress_dynamic_range
 
+from pydub.effects import compress_dynamic_range, high_pass_filter
+
+def process_voice(audio: AudioSegment) -> AudioSegment:
+    # 1. High-pass filter (remove low-end mud)
+    audio = high_pass_filter(audio, cutoff=100)
+
+    # 2. Compression
+    audio = compress_dynamic_range(
+        audio,
+        threshold=-20.0,
+        ratio=4.0,
+        attack=5,
+        release=50
+    )
+
+    # 3. Presence boost
+    boosted = audio.high_pass_filter(2500).apply_gain(3)
+    audio = audio.overlay(boosted)
+
+    # 4. Light reverb
+    delay = audio - 12
+    delay = delay.fade_in(10).fade_out(100)
+    audio = audio.overlay(delay, position=15)
+
+    return audio
+
 app = FastAPI(title="Tech Priest TTS (Offline Piper)")
 
 app.add_middleware(

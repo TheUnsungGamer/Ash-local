@@ -73,33 +73,69 @@ def exhaust_if_iterable(result: object) -> None:
         for _ in result:
             pass
 
-
 def run_piper_synthesize(text: str, wav_file: wave.Wave_write) -> None:
     """
-    Piper Python bindings vary across installs.
-    Try a few valid call shapes instead of assuming one signature.
+    Piper Python bindings in this install return iterable audio chunks
+    from voice.synthesize(text, ...), rather than writing directly to
+    a wav_file argument.
     """
+    errors: list[str] = []
+
     attempts: list[tuple[str, callable]] = [
-        ("voice.synthesize(text=text, wav_file=wav_file)", lambda: voice.synthesize(text=text, wav_file=wav_file)),
-        ("voice.synthesize(text, wav_file=wav_file)", lambda: voice.synthesize(text, wav_file=wav_file)),
-        ("voice.synthesize(text, wav_file)", lambda: voice.synthesize(text, wav_file)),
+        ("voice.synthesize(text)", lambda: voice.synthesize(text)),
         (
-            "voice.synthesize(text=text, speaker_id=None, wav_file=wav_file)",
-            lambda: voice.synthesize(text=text, speaker_id=None, wav_file=wav_file),
+            "voice.synthesize(text=text)",
+            lambda: voice.synthesize(text=text),
         ),
         (
-            "voice.synthesize(text, speaker_id=None, wav_file=wav_file)",
-            lambda: voice.synthesize(text, speaker_id=None, wav_file=wav_file),
+            "voice.synthesize(text, None, False)",
+            lambda: voice.synthesize(text, None, False),
+        ),
+        (
+            "voice.synthesize(text=text, syn_config=None, include_alignments=False)",
+            lambda: voice.synthesize(
+                text=text,
+                syn_config=None,
+                include_alignments=False,
+            ),
         ),
     ]
-
-    errors: list[str] = []
 
     for label, fn in attempts:
         try:
             result = fn()
-            exhaust_if_iterable(result)
-            return
+
+            wrote_audio = False
+
+            for chunk in result:
+                audio_int16_bytes = getattr(chunk, "audio_int16_bytes", None)
+                if audio_int16_bytes:
+                    wav_file.writeframes(audio_int16_bytes)
+                    wrote_audio = True
+                    continue
+
+                audio_bytes = getattr(chunk, "audio_bytes", None)
+                if audio_bytes:
+                    wav_file.writeframes(audio_bytes)
+                    wrote_audio = True
+                    continue
+
+                audio = getattr(chunk, "audio", None)
+                if audio is not None:
+                    if isinstance(audio, bytes):
+                        wav_file.writeframes(audio)
+                        wrote_audio = True
+                        continue
+
+                    if hasattr(audio, "tobytes"):
+                        wav_file.writeframes(audio.tobytes())
+                        wrote_audio = True
+                        continue
+
+            if wrote_audio:
+                return
+
+            errors.append(f"{label} -> synthesize returned no writable audio chunks")
         except TypeError as exc:
             errors.append(f"{label} -> {exc}")
             continue
@@ -107,8 +143,6 @@ def run_piper_synthesize(text: str, wav_file: wave.Wave_write) -> None:
             errors.append(f"{label} -> {exc}")
             continue
         except Exception as exc:
-            # If Piper actually starts working but later fails for some other reason,
-            # surface that real failure immediately.
             raise RuntimeError(f"{label} failed: {exc}") from exc
 
     signature_text = "unavailable"
@@ -122,7 +156,6 @@ def run_piper_synthesize(text: str, wav_file: wave.Wave_write) -> None:
         f"Detected signature: {signature_text}. "
         f"Attempts: {' | '.join(errors)}"
     )
-
 
 def synthesize_piper_wav_bytes(text: str) -> bytes:
     output_buffer = BytesIO()

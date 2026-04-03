@@ -125,7 +125,15 @@ export function useChat({
   ...currentConversation,
   {
     role: "user",
-    content: `${VOICE_PROFILES.VERITY.systemPrompt}\n\nUser: ${userMessage.content}`,
+    content: `${VOICE_PROFILES.VERITY.systemPrompt}
+
+Rules for this reply:
+- Answer only the user's exact request.
+- Keep it under 2 sentences unless asked for more.
+- Do not simulate multiple turns.
+- Do not continue narratives or add extra context.
+
+User request: ${userMessage.content}`,
   },
 ];
 

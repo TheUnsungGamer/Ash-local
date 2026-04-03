@@ -199,7 +199,91 @@ def synthesize_piper_wav_bytes(text: str) -> bytes:
     return ensure_wav_bytes(wav_bytes)
 
 
-def apply_tech_priest_effect(wav_bytes: bytes) -> bytes:
+def apply_verity_effect(wav_bytes: bytes) -> bytes:
+    from io import BytesIO
+    from pydub import AudioSegment
+    from pydub.effects import compress_dynamic_range
+
+    audio = AudioSegment.from_file(BytesIO(wav_bytes), format="wav")
+
+    # 1. Mono + keep a little more body
+    audio = audio.set_channels(1)
+    audio = audio.high_pass_filter(120)
+    audio = audio.low_pass_filter(8500)
+
+    # 2. Compression
+    audio = compress_dynamic_range(
+        audio,
+        threshold=-20.0,
+        ratio=4.0,
+        attack=5.0,
+        release=50.0
+    )
+
+    # 3. Presence, but less sharp
+    presence = audio.high_pass_filter(2500).low_pass_filter(4200) + 3
+    audio = audio.overlay(presence)
+
+    # 4. Light cockpit reflection
+    reflection = audio - 24
+    audio = audio.overlay(reflection, position=12)
+
+    # 5. Smaller pitch shift
+    original_rate = audio.frame_rate
+    audio = audio._spawn(
+        audio.raw_data,
+        overrides={"frame_rate": int(original_rate * 1.06)}
+    )
+    audio = audio.set_frame_rate(original_rate)
+
+    # 6. Normalize
+    audio = audio.normalize(headroom=1.0)
+
+    out = BytesIO()
+    audio.export(out, format="wav")
+    return out.getvalue()
+    from io import BytesIO
+    from pydub import AudioSegment
+    from pydub.effects import compress_dynamic_range
+
+    audio = AudioSegment.from_file(BytesIO(wav_bytes), format="wav")
+
+    # 1. Mono + clean low end
+    audio = audio.set_channels(1)
+    audio = audio.high_pass_filter(150)
+
+    # 2. Compression (consistent AI tone)
+    audio = compress_dynamic_range(
+        audio,
+        threshold=-20.0,
+        ratio=4.0,
+        attack=5.0,
+        release=50.0
+    )
+
+    # 3. Presence boost (THE key part)
+    presence = audio.high_pass_filter(2500).low_pass_filter(4500) + 5
+    audio = audio.overlay(presence)
+
+    # 4. Light "cockpit" reflections (keep subtle)
+    reflection = audio - 22
+    audio = audio.overlay(reflection, position=12)
+
+    # 5. Proper pitch shift (~+2 semitones)
+    original_rate = audio.frame_rate
+    audio = audio._spawn(
+        audio.raw_data,
+        overrides={"frame_rate": int(original_rate * 1.12)}
+    )
+    audio = audio.set_frame_rate(original_rate)
+
+    # 6. Normalize
+    audio = audio.normalize(headroom=1.0)
+
+    out = BytesIO()
+    audio.export(out, format="wav")
+
+    return out.getvalue()   
     try:
         audio = AudioSegment.from_file(BytesIO(wav_bytes), format="wav")
     except Exception as exc:
@@ -433,7 +517,7 @@ async def tts(payload: TtsRequest):
 
     try:
         raw_wav_bytes = synthesize_piper_wav_bytes(text)
-        processed_wav_bytes = apply_tech_priest_effect(raw_wav_bytes)
+        processed_wav_bytes = apply_verity_effect(raw_wav_bytes)
 
         return Response(
             content=processed_wav_bytes,

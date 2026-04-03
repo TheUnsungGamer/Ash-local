@@ -122,16 +122,12 @@ export function useChat({
         }));
 
       const nextConversation: LmStudioRequestMessage[] = [
-        {
-          role: "system",
-          content: VOICE_PROFILES.VERITY.systemPrompt,
-        },
-        ...currentConversation,
-        {
-          role: "user",
-          content: userMessage.content,
-        },
-      ];
+  ...currentConversation,
+  {
+    role: "user",
+    content: `${VOICE_PROFILES.VERITY.systemPrompt}\n\nUser: ${userMessage.content}`,
+  },
+];
 
       setMessages((previousMessages) => [
         ...previousMessages,

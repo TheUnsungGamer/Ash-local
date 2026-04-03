@@ -1,3 +1,6 @@
+from pydub import AudioSegment
+from pydub.effects import compress_dynamic_range
+from io import BytesIO
 from io import BytesIO
 from pathlib import Path
 import inspect
@@ -197,6 +200,84 @@ def synthesize_piper_wav_bytes(text: str) -> bytes:
 
 
 def apply_tech_priest_effect(wav_bytes: bytes) -> bytes:
+    try:
+        audio = AudioSegment.from_file(BytesIO(wav_bytes), format="wav")
+    except Exception as exc:
+        raise RuntimeError(f"Could not load WAV: {exc}") from exc
+
+    # 1. Clean the 'Human' Resonance (Tech-Priest sounds high-fidelity)
+    audio = audio.set_channels(1)
+    audio = audio.high_pass_filter(200)  # Removes that 'bassy' human chest sound
+    audio = audio.low_pass_filter(8500)  # Roll off the digital 'fizz'
+
+    # 2. Command Compression (Consistent ship computer volume)
+    # This keeps the output authoritative and clear even during intense moments.
+    audio = compress_dynamic_range(audio, threshold=-20.0, ratio=4.0, attack=5.0, release=50.0)
+
+    # 3. The 'Tech-Priest' Crispness (Presence Boost)
+    # Targets the 3.5kHz range where the 'computerized' clarity lives
+    presence = audio.high_pass_filter(3000).low_pass_filter(5000) + 5
+    audio = audio.overlay(presence)
+
+    # 4. Metallic Cockpit Reflections (The secret sauce)
+    # Instead of deep reverb, we use two very short 'slapback' reflections
+    # to simulate the acoustics of a small, metal ship cabin.
+    reflection1 = audio - 22  # 22dB quieter
+    reflection2 = audio - 26
+    audio = audio.overlay(reflection1, position=12)  # 12ms delay
+    audio = audio.overlay(reflection2, position=28)  # 28ms delay
+
+    # 5. Synthetic Speed Edge (Subtle pitch shift)
+    # A tiny speed increase (1.2%) makes the voice feel 'generated' rather than recorded.
+    original_rate = audio.frame_rate
+    audio = audio._spawn(audio.raw_data, overrides={"frame_rate": int(original_rate * 1.012)})
+    audio = audio.set_frame_rate(original_rate)
+
+    # 6. Final Normalize
+    audio = audio.normalize(headroom=1.0)
+
+    out_buffer = BytesIO()
+    audio.export(out_buffer, format="wav")
+    return out_buffer.getvalue()   
+    try:
+        audio = AudioSegment.from_file(BytesIO(wav_bytes), format="wav")
+    except Exception as exc:
+        raise RuntimeError(f"Could not load WAV: {exc}") from exc
+
+    # 1. Clean the 'Human' Resonance (Verity sounds high-fidelity)
+    audio = audio.set_channels(1)
+    audio = audio.high_pass_filter(200) # Removes that 'bassy' human chest sound
+    audio = audio.low_pass_filter(8500)  # Roll off the digital 'fizz'
+    
+    # 2. Command Compression (Consistent ship computer volume)
+    # This keeps the output authoritative and clear even during intense moments.
+    audio = compress_dynamic_range(audio, threshold=-20.0, ratio=4.0, attack=5.0, release=50.0)
+
+    # 3. The 'Verity' Crispness (Presence Boost)
+    # Targets the 3.5kHz range where the 'computerized' clarity lives
+    presence = audio.high_pass_filter(3000).low_pass_filter(5000) + 5 
+    audio = audio.overlay(presence)
+
+    # 4. Metallic Cockpit Reflections (The secret sauce)
+    # Instead of deep reverb, we use two very short 'slapback' reflections 
+    # to simulate the acoustics of a small, metal ship cabin.
+    reflection1 = audio - 22 # 22dB quieter
+    reflection2 = audio - 26
+    audio = audio.overlay(reflection1, position=12) # 12ms delay
+    audio = audio.overlay(reflection2, position=28) # 28ms delay
+
+    # 5. Synthetic Speed Edge (Subtle pitch shift)
+    # A tiny speed increase (1.2%) makes the voice feel 'generated' rather than recorded.
+    original_rate = audio.frame_rate
+    audio = audio._spawn(audio.raw_data, overrides={"frame_rate": int(original_rate * 1.012)})
+    audio = audio.set_frame_rate(original_rate)
+
+    # 6. Final Normalize
+    audio = audio.normalize(headroom=1.0)
+
+    out_buffer = BytesIO()
+    audio.export(out_buffer, format="wav")
+    return out_buffer.getvalue()
     try:
         audio = AudioSegment.from_file(BytesIO(wav_bytes), format="wav")
     except Exception as exc:

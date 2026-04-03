@@ -5,14 +5,13 @@ import traceback
 import wave
 from collections.abc import Iterable
 
-import numpy as np
-from scipy.io import wavfile
-
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from piper import PiperVoice
+from pydub import AudioSegment
+from pydub.effects import compress_dynamic_range
 
 app = FastAPI(title="Tech Priest TTS (Offline Piper)")
 
@@ -24,7 +23,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-VOICE_MODEL_PATH = Path("en_GB-alan-medium.onnx")
+# Recommended for a Verity-ish direction:
+# VOICE_MODEL_PATH = Path("en_GB-southern_english_female-medium.onnx")
+# VOICE_MODEL_PATH = Path("en_GB-southern_english_female-low.onnx")
+VOICE_MODEL_PATH = Path("en_GB-jenny_dioco-medium.onnx")
 
 if not VOICE_MODEL_PATH.exists():
     raise RuntimeError(
@@ -49,7 +51,6 @@ def get_piper_sample_rate() -> int:
     if isinstance(sample_rate, int) and sample_rate > 0:
         return sample_rate
 
-    # Safe fallback used by common Piper voices
     return 22050
 
 
@@ -73,6 +74,7 @@ def exhaust_if_iterable(result: object) -> None:
         for _ in result:
             pass
 
+
 def run_piper_synthesize(text: str, wav_file: wave.Wave_write) -> None:
     """
     Piper Python bindings in this install return iterable audio chunks
@@ -83,14 +85,8 @@ def run_piper_synthesize(text: str, wav_file: wave.Wave_write) -> None:
 
     attempts: list[tuple[str, callable]] = [
         ("voice.synthesize(text)", lambda: voice.synthesize(text)),
-        (
-            "voice.synthesize(text=text)",
-            lambda: voice.synthesize(text=text),
-        ),
-        (
-            "voice.synthesize(text, None, False)",
-            lambda: voice.synthesize(text, None, False),
-        ),
+        ("voice.synthesize(text=text)", lambda: voice.synthesize(text=text)),
+        ("voice.synthesize(text, None, False)", lambda: voice.synthesize(text, None, False)),
         (
             "voice.synthesize(text=text, syn_config=None, include_alignments=False)",
             lambda: voice.synthesize(
@@ -104,7 +100,6 @@ def run_piper_synthesize(text: str, wav_file: wave.Wave_write) -> None:
     for label, fn in attempts:
         try:
             result = fn()
-
             wrote_audio = False
 
             for chunk in result:
@@ -157,6 +152,7 @@ def run_piper_synthesize(text: str, wav_file: wave.Wave_write) -> None:
         f"Attempts: {' | '.join(errors)}"
     )
 
+
 def synthesize_piper_wav_bytes(text: str) -> bytes:
     output_buffer = BytesIO()
     sample_rate = get_piper_sample_rate()
@@ -166,9 +162,7 @@ def synthesize_piper_wav_bytes(text: str) -> bytes:
             wav_file.setnchannels(1)
             wav_file.setsampwidth(2)
             wav_file.setframerate(sample_rate)
-
             run_piper_synthesize(text, wav_file)
-
     except Exception as exc:
         raise RuntimeError(f"Piper synth call failed: {exc}") from exc
 
@@ -177,59 +171,65 @@ def synthesize_piper_wav_bytes(text: str) -> bytes:
 
 
 def apply_tech_priest_effect(wav_bytes: bytes) -> bytes:
-    input_buffer = BytesIO(wav_bytes)
-
+    """
+    Verity / ship-AI style processing:
+    - subtle compression for a more constant, authoritative level
+    - 100 Hz high-pass to remove mud
+    - presence lift in the 2.5kHz–4kHz region
+    - very short light cockpit-style reflections
+    - gentle normalization
+    """
     try:
-        sample_rate, audio_data = wavfile.read(input_buffer)
+        audio = AudioSegment.from_file(BytesIO(wav_bytes), format="wav")
     except Exception as exc:
-        raise RuntimeError(f"Could not read Piper WAV output: {exc}") from exc
+        raise RuntimeError(f"Could not load WAV into pydub: {exc}") from exc
 
-    if getattr(audio_data, "size", 0) == 0:
-        raise RuntimeError("Decoded WAV audio was empty.")
+    # Keep the voice focused and centered
+    audio = audio.set_channels(1)
 
-    if audio_data.dtype == np.int16:
-        x = audio_data.astype(np.float32) / 32768.0
-    elif np.issubdtype(audio_data.dtype, np.integer):
-        max_int = np.iinfo(audio_data.dtype).max
-        x = audio_data.astype(np.float32) / float(max_int)
-    else:
-        x = audio_data.astype(np.float32)
+    # 1) Subtle compression
+    audio = compress_dynamic_range(
+        audio,
+        threshold=-20.0,
+        ratio=2.5,
+        attack=5.0,
+        release=80.0,
+    )
 
-    if x.ndim > 1:
-        x = x.mean(axis=1)
+    # 2) High-pass filter around 100 Hz
+    audio = audio.high_pass_filter(100)
 
-    hp = x - np.concatenate(([0.0], x[:-1] * 0.97))
-    x = (x * 0.9) + (hp * 0.35)
+    # 3) Presence boost approximation for 2.5kHz–4kHz
+    # Pydub doesn't do true parametric EQ, so isolate this region and blend it back louder.
+    presence_band = audio.high_pass_filter(2500).low_pass_filter(4000) + 3
+    audio = audio.overlay(presence_band)
 
-    presence = x - np.concatenate(([0.0], x[:-1] * 0.985))
-    x = (x * 0.85) + (presence * 0.4)
+    # Extra light upper sheen for digital clarity
+    air_band = audio.high_pass_filter(4500) - 7
+    audio = audio.overlay(air_band)
 
-    delay_ms = 6
-    delay_samples = int(sample_rate * delay_ms / 1000)
-    dbl = np.zeros_like(x)
-    if 0 < delay_samples < len(x):
-        dbl[delay_samples:] = x[:-delay_samples] * 0.08
-    x = x + dbl
+    # 4) Light "cockpit" reverb using a few short reflections
+    def delayed(seg: AudioSegment, delay_ms: int, gain_db: float) -> AudioSegment:
+        return AudioSegment.silent(duration=delay_ms, frame_rate=seg.frame_rate) + (seg + gain_db)
 
-    slap_ms = 12
-    slap_samples = int(sample_rate * slap_ms / 1000)
-    slap = np.zeros_like(x)
-    if 0 < slap_samples < len(x):
-        slap[slap_samples:] = x[:-slap_samples] * 0.06
-    x = x + slap
+    reflections = AudioSegment.silent(duration=len(audio), frame_rate=audio.frame_rate)
+    reflections = reflections.overlay(delayed(audio, 15, -20))
+    reflections = reflections.overlay(delayed(audio, 28, -23))
+    reflections = reflections.overlay(delayed(audio, 42, -27))
 
-    x = np.tanh(x * 1.15)
+    # Keep it subtle; this should feel like space around the voice, not audible echo
+    audio = audio.overlay(reflections - 2)
 
-    peak = np.max(np.abs(x))
-    if peak > 0:
-        x = x / peak * 0.95
+    # 5) Gentle normalization with headroom
+    audio = audio.normalize(headroom=1.0)
 
-    x = np.clip(x, -1.0, 1.0)
-    out = (x * 32767).astype(np.int16)
+    out_buffer = BytesIO()
+    try:
+        audio.export(out_buffer, format="wav")
+    except Exception as exc:
+        raise RuntimeError(f"Could not export processed WAV: {exc}") from exc
 
-    output_buffer = BytesIO()
-    wavfile.write(output_buffer, sample_rate, out)
-    processed_bytes = output_buffer.getvalue()
+    processed_bytes = out_buffer.getvalue()
 
     if not processed_bytes:
         raise RuntimeError("Processed WAV output was empty.")

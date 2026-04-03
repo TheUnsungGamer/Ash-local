@@ -206,6 +206,94 @@ def apply_verity_effect(wav_bytes: bytes) -> bytes:
 
     audio = AudioSegment.from_file(BytesIO(wav_bytes), format="wav")
 
+    # 1. Mono, but keep body
+    audio = audio.set_channels(1)
+
+    # Less aggressive cleanup
+    audio = audio.high_pass_filter(100)
+    audio = audio.low_pass_filter(9500)
+
+    # 2. Smoother compression (less aggressive)
+    audio = compress_dynamic_range(
+        audio,
+        threshold=-18.0,
+        ratio=2.5,
+        attack=8.0,
+        release=90.0
+    )
+
+    # 3. Gentle presence (not sharp overlay)
+    presence = audio.high_pass_filter(2800).low_pass_filter(4200) + 2
+    audio = audio.overlay(presence)
+
+    # 4. Add a bit of mid clarity (this is new)
+    mid = audio.high_pass_filter(900).low_pass_filter(1500) + 1
+    audio = audio.overlay(mid)
+
+    # 5. VERY subtle air
+    air = audio.high_pass_filter(6000) - 12
+    audio = audio.overlay(air)
+
+    # 6. Remove obvious "effect" reverb (THIS is key)
+    # No slapback reflections here
+
+    # 7. Normalize
+    audio = audio.normalize(headroom=1.0)
+
+    out = BytesIO()
+    audio.export(out, format="wav")
+    return out.getvalue()   
+    from io import BytesIO
+    from pydub import AudioSegment
+    from pydub.effects import compress_dynamic_range
+
+    try:
+        audio = AudioSegment.from_file(BytesIO(wav_bytes), format="wav")
+    except Exception as exc:
+        raise RuntimeError(f"Could not load WAV: {exc}") from exc
+
+    # Verity works best as clean, centered, controlled speech
+    audio = audio.set_channels(1)
+
+    # Keep some body; don't over-thin it
+    audio = audio.high_pass_filter(110)
+    audio = audio.low_pass_filter(9000)
+
+    # Firm but not smashed
+    audio = compress_dynamic_range(
+        audio,
+        threshold=-21.0,
+        ratio=3.0,
+        attack=6.0,
+        release=70.0,
+    )
+
+    # Main clarity band
+    presence = audio.high_pass_filter(2600).low_pass_filter(4200) + 2
+    audio = audio.overlay(presence)
+
+    # Tiny bit of upper sheen
+    air = audio.high_pass_filter(6000) - 10
+    audio = audio.overlay(air)
+
+    # Very subtle cockpit space — almost imperceptible
+    early_reflection = (audio.high_pass_filter(1800) - 28)
+    audio = audio.overlay(early_reflection, position=14)
+
+    # No pitch shift
+    # No speed trick
+
+    audio = audio.normalize(headroom=1.0)
+
+    out_buffer = BytesIO()
+    audio.export(out_buffer, format="wav")
+    return out_buffer.getvalue() 
+    from io import BytesIO
+    from pydub import AudioSegment
+    from pydub.effects import compress_dynamic_range
+
+    audio = AudioSegment.from_file(BytesIO(wav_bytes), format="wav")
+
     # 1. Mono + keep a little more body
     audio = audio.set_channels(1)
     audio = audio.high_pass_filter(120)

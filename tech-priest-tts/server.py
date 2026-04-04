@@ -39,7 +39,7 @@ voice = PiperVoice.load(str(VOICE_MODEL_PATH))
 RVC_URL = "http://127.0.0.1:7897"
 
 RVC_MODEL_PATH = r"C:\Users\richa\Desktop\RVC-beta0717\assets\weights\verity.pth"
-RVC_INDEX_PATH = r"C:\Users\richa\Desktop\RVC-beta0717\assets\weights\verity.index"
+RVC_INDEX_PATH = r""
 
 
 def apply_rvc_conversion(input_wav_bytes: bytes) -> bytes:
@@ -49,7 +49,7 @@ def apply_rvc_conversion(input_wav_bytes: bytes) -> bytes:
     if not os.path.exists(RVC_MODEL_PATH):
         raise RuntimeError(f"RVC model not found: {RVC_MODEL_PATH}")
 
-    if not os.path.exists(RVC_INDEX_PATH):
+    if RVC_INDEX_PATH and not os.path.exists(RVC_INDEX_PATH):
         raise RuntimeError(f"RVC index not found: {RVC_INDEX_PATH}")
 
     input_tmp_path = None

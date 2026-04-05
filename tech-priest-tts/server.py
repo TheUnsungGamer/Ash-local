@@ -44,7 +44,7 @@ voice = PiperVoice.load(str(VOICE_MODEL_PATH))
 # RVC CONFIG
 # =========================
 RVC_DIR = r"C:\Users\richa\Desktop\RVC-beta0717"
-RVC_PYTHON = os.path.join(RVC_DIR, "runtime", "python.exe")
+RVC_PYTHON = r"C:\Users\richa\Desktop\RVC-beta0717\runtime\python.exe"
 RVC_MODEL = os.path.join(RVC_DIR, "assets", "weights", "verity.pth")
 
 # Leave blank if you do not have an index file
@@ -75,7 +75,7 @@ class TtsRequest(BaseModel):
 # HELPERS
 # =========================
 
-RVC_INFER_CLI = r"C:\Users\richa\Desktop\RVC-beta0717\infer_cli.py"
+RVC_INFER_CLI = r"C:\Users\richa\Desktop\RVC-beta0717\rvc_infer_cli.py"
 
 
 
@@ -199,7 +199,8 @@ def apply_rvc_conversion(input_wav_bytes: bytes) -> bytes:
         # Positional argument order for RVC-beta0717
         cmd = [
     RVC_PYTHON,
-    RVC_INFER_CLI,
+     "-u",
+    os.path.abspath(RVC_INFER_CLI),
     "--input_path", input_path,
     "--opt_path", output_path,
     "--model_name", RVC_MODEL,
@@ -216,15 +217,17 @@ def apply_rvc_conversion(input_wav_bytes: bytes) -> bytes:
 ]
 
         print(f"[RVC] CMD: {' '.join(cmd)}", flush=True)
+        rvc_env = os.environ.copy()
+        rvc_env["PYTHONPATH"] = r"C:\Users\richa\Desktop\RVC-beta0717"
 
         result = subprocess.run(
-            cmd,
-            cwd=RVC_DIR,
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-
+    cmd,
+    cwd=r"C:\Users\richa\Desktop\RVC-beta0717",
+    capture_output=True,
+    text=True,
+    timeout=300,
+    env=rvc_env,
+)
         # Always surface RVC output so you can see what's happening
         if result.stdout:
             print(f"[RVC STDOUT]\n{result.stdout}", flush=True)

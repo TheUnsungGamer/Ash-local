@@ -44,7 +44,8 @@ voice = PiperVoice.load(str(VOICE_MODEL_PATH))
 # RVC CONFIG
 # =========================
 RVC_DIR = r"C:\Users\richa\Desktop\RVC-beta0717"
-RVC_PYTHON = r"C:\Users\richa\Desktop\RVC-beta0717\runtime\python.exe"
+RVC_PYTHON = r"C:\Users\richa\rvc_venv310\Scripts\python.exe"
+RVC_INFER_CLI = r"C:\Users\richa\Desktop\RVC-beta0717\verity_infer.py"
 RVC_MODEL = os.path.join(RVC_DIR, "assets", "weights", "verity.pth")
 
 # Leave blank if you do not have an index file
@@ -69,14 +70,6 @@ RVC_IS_HALF = "False"  # Must be False when using CPU
 # =========================
 class TtsRequest(BaseModel):
     text: str = Field(min_length=1, max_length=4000)
-
-
-# =========================
-# HELPERS
-# =========================
-
-RVC_INFER_CLI = r"C:\Users\richa\Desktop\RVC-beta0717\rvc_infer_cli.py"
-
 
 
 # =========================
@@ -147,23 +140,6 @@ def synthesize_piper_wav_bytes(text: str) -> bytes:
 # RVC CONVERSION (SUBPROCESS)
 # =========================
 def apply_rvc_conversion(input_wav_bytes: bytes) -> bytes:
-    """
-    Run RVC voice conversion via infer_cli.py subprocess.
-
-    FIX 1 — Positional args, not --named-flags:
-        RVC-beta0717's infer_cli.py reads sys.argv positionally.
-        Using --named-flags causes silent failure (rc=0, no output written),
-        which is the root cause of the NoneType / empty output errors.
-
-        Positional order:
-            f0up_key  f0method  input_path  opt_path  model_name
-            index_path  index_rate  filter_radius  resample_sr
-            rms_mix_rate  protect  device  is_half
-
-    FIX 2 — Don't pre-create the output temp file:
-        Some RVC builds won't overwrite an existing file, even an empty one.
-        We get the path from mkstemp, close + delete the file, then let RVC create it fresh.
-    """
     if not input_wav_bytes:
         raise RuntimeError("Empty WAV passed to RVC.")
 
@@ -183,52 +159,49 @@ def apply_rvc_conversion(input_wav_bytes: bytes) -> bytes:
     output_path = None
 
     try:
-        # Write Piper output to temp input file
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_in:
             tmp_in.write(input_wav_bytes)
             input_path = tmp_in.name
 
-        # Reserve a temp path for RVC output, then DELETE the empty file
-        # so RVC can create it fresh (some builds won't overwrite existing files)
         fd, output_path = tempfile.mkstemp(suffix=".wav")
         os.close(fd)
         os.remove(output_path)
 
         index_path_arg = RVC_INDEX if RVC_INDEX else ""
 
-        # Positional argument order for RVC-beta0717
         cmd = [
-    RVC_PYTHON,
-     "-u",
-    os.path.abspath(RVC_INFER_CLI),
-    "--input_path", input_path,
-    "--opt_path", output_path,
-    "--model_name", RVC_MODEL,
-    "--f0up_key", str(RVC_PITCH),
-    "--f0method", RVC_F0_METHOD,
-    "--index_path", index_path_arg,
-    "--index_rate", str(RVC_INDEX_RATE),
-    "--filter_radius", str(RVC_FILTER_RADIUS),
-    "--resample_sr", str(RVC_RESAMPLE_SR),
-    "--rms_mix_rate", str(RVC_RMS_MIX_RATE),
-    "--protect", str(RVC_PROTECT),
-    "--device", RVC_DEVICE,
-    "--is_half", RVC_IS_HALF,
-]
+            RVC_PYTHON,
+            "-u",
+            os.path.abspath(RVC_INFER_CLI),
+            "--input_path", input_path,
+            "--opt_path", output_path,
+            "--model_name", RVC_MODEL,
+            "--f0up_key", str(RVC_PITCH),
+            "--f0method", RVC_F0_METHOD,
+            "--index_path", index_path_arg,
+            "--index_rate", str(RVC_INDEX_RATE),
+            "--filter_radius", str(RVC_FILTER_RADIUS),
+            "--resample_sr", str(RVC_RESAMPLE_SR),
+            "--rms_mix_rate", str(RVC_RMS_MIX_RATE),
+            "--protect", str(RVC_PROTECT),
+            "--device", RVC_DEVICE,
+            "--is_half", RVC_IS_HALF,
+        ]
 
         print(f"[RVC] CMD: {' '.join(cmd)}", flush=True)
+
         rvc_env = os.environ.copy()
         rvc_env["PYTHONPATH"] = r"C:\Users\richa\Desktop\RVC-beta0717"
 
         result = subprocess.run(
-    cmd,
-    cwd=r"C:\Users\richa\Desktop\RVC-beta0717",
-    capture_output=True,
-    text=True,
-    timeout=300,
-    env=rvc_env,
-)
-        # Always surface RVC output so you can see what's happening
+            cmd,
+            cwd=r"C:\Users\richa\AppData\Local\Temp",
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env=rvc_env,
+        )
+
         if result.stdout:
             print(f"[RVC STDOUT]\n{result.stdout}", flush=True)
         if result.stderr:
@@ -245,8 +218,6 @@ def apply_rvc_conversion(input_wav_bytes: bytes) -> bytes:
         if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
             raise RuntimeError(
                 "RVC exited cleanly (rc=0) but produced no output file.\n"
-                "This usually means the positional argument order doesn't match your build.\n"
-                f"Open {RVC_INFER_CLI} and check how it reads sys.argv, then adjust the cmd list.\n"
                 f"CMD: {' '.join(cmd)}\n"
                 f"STDOUT:\n{result.stdout}\n"
                 f"STDERR:\n{result.stderr}"

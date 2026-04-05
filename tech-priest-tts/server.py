@@ -44,7 +44,6 @@ voice = PiperVoice.load(str(VOICE_MODEL_PATH))
 # RVC CONFIG
 # =========================
 RVC_DIR = r"C:\Users\richa\Desktop\RVC-beta0717"
-RVC_PYTHON = r"C:\Users\richa\rvc_venv310\Scripts\python.exe"
 RVC_INFER_CLI = r"C:\Users\richa\Desktop\RVC-beta0717\verity_infer.py"
 RVC_MODEL = os.path.join(RVC_DIR, "assets", "weights", "verity.pth")
 

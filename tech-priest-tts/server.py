@@ -74,29 +74,9 @@ class TtsRequest(BaseModel):
 # =========================
 # HELPERS
 # =========================
-def find_rvc_infer_cli(rvc_dir: str) -> str:
-    candidates = [
-        os.path.join(rvc_dir, "infer_cli.py"),
-        os.path.join(rvc_dir, "tools", "infer_cli.py"),
-        os.path.join(rvc_dir, "infer", "infer_cli.py"),
-        os.path.join(rvc_dir, "tools", "infer", "infer_cli.py"),
-    ]
 
-    for path in candidates:
-        if os.path.exists(path):
-            return path
+RVC_INFER_CLI = r"C:\Users\richa\Desktop\RVC-beta0717\infer_cli.py"
 
-    for root, _, files in os.walk(rvc_dir):
-        if "infer_cli.py" in files:
-            return os.path.join(root, "infer_cli.py")
-
-    raise RuntimeError(
-        "infer_cli.py not found anywhere under RVC_DIR. "
-        f"Checked under: {rvc_dir}"
-    )
-
-
-RVC_INFER_CLI = find_rvc_infer_cli(RVC_DIR)
 
 
 # =========================
